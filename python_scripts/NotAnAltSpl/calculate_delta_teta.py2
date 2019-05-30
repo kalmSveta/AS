@@ -1,0 +1,197 @@
+#!/usr/bin/env python2
+
+import pandas as pd
+import numpy as np
+import glob, re, sys, getopt
+from functools import partial
+
+
+def select_matched_donors(metadata, suffix, path_to_files):
+    files = glob.glob(path_to_files + '*' + suffix)  # list all files in dir
+    func = partial(re.sub, path_to_files, '')
+    files = map(func, files)  # remove path to files from list
+    func = partial(re.sub, suffix, '')
+    files = map(func, files)  # remove path to files from list
+    normal_donorIds = []
+    for file_ in files:  # list of donorIds, which have a normal file
+        file_gff = file_ + '.A07.gff'
+        if len(metadata[metadata['normal_fileName_gff'].str.contains(file_gff)].donorId.values) > 0:
+            normal_donorIds.append(
+                metadata[metadata['normal_fileName_gff'].str.contains(file_)].donorId.values[0])
+    tumor_donorIds = []
+    for file_ in files:  # list of donorIds, hich have a tumor file
+        file_gff = file_ + '.A07.gff'
+        if len(metadata[metadata['tumor_fileName_gff'].str.contains(file_gff)].donorId.values) > 0:
+            tumor_donorIds.append(
+                metadata[metadata['tumor_fileName_gff'].str.contains(file_)].donorId.values[0])
+    donorIds = list(set(normal_donorIds) & set(tumor_donorIds))  # select only donors which have both norm and tum file
+    return(donorIds)
+
+
+def parse_one_type_site(path_to_file_with_name, suffix_inc, suffix_ret):
+    df_ret = pd.read_csv(path_to_file_with_name + suffix_ret, sep='\t', header=None)
+    df_ret['chr'] = df_ret.loc[:, 0].str.split('_', 3, expand=True).loc[:, 0]
+    df_ret['coord'] = df_ret.loc[:, 0].str.split('_', 3, expand=True).loc[:, 1]
+    df_ret['strand'] = df_ret.loc[:, 0].str.split('_', 3, expand=True).loc[:, 2]
+    df_ret.rename({1: 'counts'}, axis=1, inplace=True)
+    df_ret = df_ret.loc[:, ['chr', 'coord', 'strand', 'counts']]
+    df_ret['counts'] = df_ret['counts'].apply(int)
+
+    df_inc = pd.read_csv(path_to_file_with_name + suffix_inc, sep='\t', header=None)
+    df_inc = df_inc.loc[df_inc[5] == 'GTAG']
+    df_inc['chr'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 0]
+    df_inc['start'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 1]
+    df_inc['end'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 2]
+    df_inc['strand'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 3]
+    df_inc.rename({1: 'counts'}, axis=1, inplace=True)
+    df_inc = df_inc.loc[:, ['chr','start', 'end', 'strand', 'counts']]
+    df_inc['counts'] = df_inc['counts'].apply(int)
+
+    df_inc_start = df_inc.groupby(['chr', 'start', 'strand'])[['counts']].sum()
+    df_ret.rename({'coord': 'start'}, axis=1, inplace=True)
+    merged_start = pd.merge(df_inc_start, df_ret, on=['chr', 'strand', 'start'], how='outer', suffixes=['_inc', '_ret'])
+    merged_start.fillna(0, inplace=True)
+    merged_start.rename({'start': 'coord'}, axis=1, inplace=True)
+
+    df_inc_end = df_inc.groupby(['chr', 'end', 'strand'])[['counts']].sum()
+    df_ret.rename({'start': 'end'}, axis=1, inplace=True)
+    merged_end = pd.merge(df_inc_end, df_ret, on=['chr', 'strand', 'end'], how='outer', suffixes=['_inc', '_ret'])
+    merged_end.fillna(0, inplace=True)
+    merged_end.rename({'end': 'coord'}, axis=1, inplace=True)
+
+    df_type = merged_start.append(merged_end, ignore_index=True)
+    df_type = df_type.groupby(['chr', 'coord', 'strand', 'counts_ret'])[['counts_inc']].sum()
+    df_type.reset_index(inplace=True)
+    return(df_type)
+
+def parse_one_type_intron(path_to_file_with_name, suffix_inc, suffix_ret):
+    df_ret = pd.read_csv(path_to_file_with_name + suffix_ret, sep='\t', header=None)
+    df_ret['chr'] = df_ret.loc[:, 0].str.split('_', 3, expand=True).loc[:, 0]
+    df_ret['coord'] = df_ret.loc[:, 0].str.split('_', 3, expand=True).loc[:, 1]
+    df_ret['strand'] = df_ret.loc[:, 0].str.split('_', 3, expand=True).loc[:, 2]
+    df_ret.rename({1: 'counts'}, axis=1, inplace=True)
+    df_ret = df_ret.loc[:, ['chr', 'coord', 'strand', 'counts']]
+    df_ret['counts'] = df_ret['counts'].apply(int)
+
+    df_inc = pd.read_csv(path_to_file_with_name + suffix_inc, sep='\t', header=None)
+    df_inc = df_inc.loc[df_inc[5] == 'GTAG']
+    df_inc['chr'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 0]
+    df_inc['start'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 1]
+    df_inc['end'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 2]
+    df_inc['strand'] = df_inc.loc[:, 0].str.split('_', 3, expand=True).loc[:, 3]
+    df_inc.rename({1: 'counts'}, axis=1, inplace=True)
+    df_inc = df_inc.loc[:, ['chr','start', 'end', 'strand', 'counts']]
+    df_inc['counts'] = df_inc['counts'].apply(int)
+
+    df_ret.rename({'coord': 'start'}, axis=1, inplace=True)
+    merged_start = pd.merge(df_inc, df_ret, on=['chr', 'strand', 'start'], how='outer', suffixes=['_inc', '_ret'])
+    merged_start.fillna(0, inplace=True)
+
+    df_ret.rename({'start': 'end'}, axis=1, inplace=True)
+    merged_end = pd.merge(df_inc, df_ret, on=['chr', 'strand', 'end'], how='outer', suffixes=['_inc', '_ret'])
+    merged_end.fillna(0, inplace=True)
+
+    df_type = pd.merge(merged_start, merged_end, on = ['chr', 'start', 'end', 'strand', 'counts_inc'], suffixes=['_start', '_end'])
+    df_type['counts_ret'] = df_type.counts_ret_start + df_type.counts_ret_end
+    df_type.drop(['counts_ret_start', 'counts_ret_end'], axis=1, inplace=True)
+    return(df_type)
+
+
+def parse_one_donor(donorId, path_to_files, metadata, suffix_inc, suffix_ret, feature):
+    normal_file_name = path_to_files + re.sub('.A07.gff', '',
+                                              metadata[metadata.donorId == donorId].normal_fileName_gff.values[0])
+    tumor_file_name = path_to_files + re.sub('.A07.gff', '',
+                                             metadata[metadata.donorId == donorId].tumor_fileName_gff.values[0])
+    if feature == 'site':
+        df_normal = parse_one_type_site(normal_file_name, suffix_inc, suffix_ret)
+        df_tumor = parse_one_type_site(tumor_file_name, suffix_inc, suffix_ret)
+        df_donor = pd.merge(df_normal, df_tumor, on=['chr', 'strand', 'coord'], how='inner',
+                        suffixes=['_normal', '_tumor'])
+    elif feature == 'intron':
+        df_normal = parse_one_type_intron(normal_file_name, suffix_inc, suffix_ret)
+        df_tumor = parse_one_type_intron(tumor_file_name, suffix_inc, suffix_ret)
+        df_donor = pd.merge(df_normal, df_tumor, on=['chr', 'start', 'end', 'strand'], how='inner',
+                            suffixes=['_normal', '_tumor'])
+    else:
+        df_donor = None
+        print('Do not know such feature')
+    return(df_donor)
+
+
+def process_one_tissue(tissue, metadata, path_to_files, suffix_inc, suffix_ret, feature):
+    metadata = metadata.loc[metadata['tissue'] == tissue]
+    donorIds = select_matched_donors(metadata, suffix_inc, path_to_files)
+    print('Have donors: ' + str(len(donorIds)))
+
+    donorId = donorIds[0]
+    df_global = parse_one_donor(donorId, path_to_files, metadata, suffix_inc, suffix_ret, feature)
+    df_global.rename(
+        {'counts_ret_normal': 'counts_ret_normal' + donorId, 'counts_inc_normal': 'counts_inc_normal' + donorId,
+         'counts_ret_tumor': 'counts_ret_tumor' + donorId, 'counts_inc_tumor': 'counts_inc_tumor' + donorId}, axis=1,
+        inplace=True)
+    print('Parsed zero donor!')
+    i = 0
+    for donorId in donorIds[1:]:
+        i = i + 1
+        print(i, donorId)
+        if donorId == 'DO45299':
+            print('Hypermutated donor! I will nor process him!')
+        else:
+            df_donor = parse_one_donor(donorId, path_to_files, metadata, suffix_inc, suffix_ret, feature)
+            if feature == 'site':
+                df_global = pd.merge(df_global, df_donor, on=['chr', 'strand', 'coord'], how='outer',
+                                     suffixes=['', donorId])
+            elif feature == 'intron':
+                df_global = pd.merge(df_global, df_donor, on=['chr', 'start', 'end', 'strand'], how='outer',
+                                     suffixes=['', donorId])
+            else:
+                print('Do not know such feature!')
+        df_global.to_csv(tissue + '_' + feature + '_' + 'unfinished.tsv', sep='\t', index=False)
+        print(df_global.shape)
+    df_global.fillna(0, inplace=True)
+    print('Have gotten the big df')
+    df_global['ret_tumor'] = df_global.filter(like='tumor', axis=1).filter(like='counts_ret', axis=1).sum(axis=1)
+    df_global['inc_tumor'] = df_global.filter(like='tumor', axis=1).filter(like='counts_inc', axis=1).sum(axis=1)
+    df_global['ret_normal'] = df_global.filter(like='normal', axis=1).filter(like='counts_ret', axis=1).sum(axis=1)
+    df_global['inc_normal'] = df_global.filter(like='normal', axis=1).filter(like='counts_inc', axis=1).sum(axis=1)
+
+    df_global.to_csv(tissue + '_' + feature + '_' + 'delta_teta_all.tsv', sep='\t', index=False)
+
+    return (0)
+
+
+def main(argv):
+    suffix_ret = '.A06.ssc.tsv'
+    suffix_inc = '.A06.ssj.tsv'
+    tissue = 'kidney'
+    metadata_path = '../../delta_psi_icgc/metadata_normal-tumor.csv'
+    path_to_files = '../../../dp/ipsa/hg19/icgc/A06/'
+    feature = 'intron'
+    try:
+        opts, args = getopt.getopt(argv, "h:r:i:p:m:t:f:",
+                                   ["help=", "suffix_ret=", "suffix_inc=", "path=", "metadata=", "tissue=", 'feature='])
+    except getopt.GetoptError:
+        print('calculate_delta_teta.py2 -r <suffix_ret> -i <suffix_inc> -p <path> -m <metadata> -t <tissue>')
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ('-h', '--help'):
+            print('CalculateCompensatory.py2 -p <ph_input_path> -t <n_threads>')
+            sys.exit()
+        elif opt in ("-r", "--suffix_ret"):
+            suffix_ret = arg
+        elif opt in ("-i", "--suffix_inc"):
+            suffix_inc = int(arg)
+        elif opt in ("-p", "--path"):
+            path_to_files = arg
+        elif opt in ("-m", "--metadata"):
+            metadata_path = arg
+        elif opt in ("-t", "--tissue"):
+            tissue = arg
+        elif opt in ("-f", "--feature"):
+            feature = arg
+    metadata = pd.read_csv(metadata_path, sep=',')
+    process_one_tissue(tissue, metadata, path_to_files, suffix_inc, suffix_ret, feature)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
