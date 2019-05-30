@@ -1,0 +1,85 @@
+#!/usr/bin/env python2
+import sys, getopt
+from subprocess import call
+import pandas as pd
+
+def process(path_to_flank,  path_to_handle):
+    df1 = pd.read_csv(path_to_flank, sep = '\t', header = None)     
+    df1['length'] = df1[2] - df1[1]
+    df1 = df1[[3, 12, 'length']]
+    df1.columns = ['id', 'Score', 'length']
+    df1 = df1.groupby(['id'])[['Score', 'length']].sum()
+    df1['id'] = df1.index
+    del df1.index.name                                                                                                                   
+    df2 = pd.read_csv(path_to_handle, sep = '\t', header = None)
+    df2['length'] = df2[2] - df2[1]
+    df2 = df2[[3, 12, 'length']]
+    df2.columns = ['id', 'Score', 'length']
+    df2.Score = df2.length - df2.Score
+    df = pd.merge(df1, df2, on = ['id'], how = 'outer', suffixes=['flanking', 'handle'])
+    df = df.fillna(0)
+    df.loc[df.lengthflanking == 0, 'Scoreflanking'] = 20                                                                                                                                                    
+    df.loc[df.lengthflanking == 0, 'lengthflanking'] = 20     
+    df['Score'] = (df['Scoreflanking'] + df['Scorehandle'] ) / (df['lengthflanking'] + df['lengthhandle'])
+    return(df)
+    
+def main(argv):
+    flank_length = 1000
+    path_to_panahndles_bed12 = "../folding_pretty_copy/out/folding/panhandles_preprocessed.bed12"
+    path_to_chr = "../../tools/hg19.chrom.sizes"
+    path_to_anno = "../../conservative_features/gencode.v19.annotation.gtf"
+    path_to_bigWig = ""
+    path_to_bg = "track.bg"
+    try:
+        opts, args = getopt.getopt(argv,"h:f:p:c:a:w:g:", ["help=","flankLength=","panhandles=", "chr=", "anno", "bigWig=", "bedgraph="])
+    except getopt.GetoptError:
+        print('CalculateScore -f <flank_length> -p <pathToPanhBed12> -c <pathToChr> -a <pathToAnno> -w <pathToBigWig> -g <pathToBedgraph>')
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ('-h', '--help'):
+            print('CalculateScore.py2 -f <flank_length> -p <pathToPanhBed12> -c <pathToChr> -a <pathToAnno> -w <pathToBigWig> -g <pathToBedgraph>')
+            sys.exit()
+        elif opt in ("-f", "--flankLength"):
+            flank_length = arg
+        elif opt in ("-p", "--panhandles"):
+            path_to_panahndles_bed12 = arg
+        elif opt in ("-c", "--chr"):
+            path_to_chr = arg
+        elif opt in ("-a", "--anno"):
+            path_to_anno = arg
+        elif opt in ("-w", "--bigWig"):
+            path_to_bigWig = arg
+        elif opt in ("-g", "--bedgraph"):
+            path_to_bg = arg
+    print(flank_length, path_to_panahndles_bed12, path_to_chr,   path_to_anno, path_to_bigWig)
+    if path_to_bg == "":
+        # make bedgraph from phastCons
+        call(['./bigWigToBedGraph',  path_to_bigWig,  'track.bg'])
+        print('Made bedGraph')
+    call(['./one_handle.sh',  'left',  path_to_panahndles_bed12,  path_to_chr,  path_to_anno, flank_length] )
+    print('processed left handle')
+    #change places of handles
+    call(['./swap_handles.sh',  path_to_panahndles_bed12])
+    print('swapt handles')
+    call(['./one_handle.sh',  'right',  'alignments_whole_human_genome_processed_bed12_right.bed',  path_to_chr,  path_to_anno, flank_length])
+    print('processed right handle')
+#    call(['rm flanking_sum.bed'])
+#    call(['rm panhandles_sum.bed'])
+#    call(['rm flanking_regions.bed'])
+#    call(['rm alignments_whole_human_genome_processed_bed12_right.bed'])
+#    call(['rm htrack.bg'])
+#    print('removed rubbish')
+    
+    df_left = process('flanking_sum_left.bed',  'panhandles_sum_left.bed')
+    df_right = process('flanking_sum_right.bed',  'panhandles_sum_right.bed')
+
+    df = pd.merge(df_left, df_right, on = ['id'], suffixes = ['left', 'right'], how = 'outer')
+    
+    df['Score'] = (df['Scoreflankingleft'] + df['Scorehandleleft'] + df['Scoreflankingright'] + df['Scorehandleright'])/(df['lengthflankingleft'] + df['lengthhandleleft'] + df['lengthflankingright'] + df['lengthhandleright'])
+    df = df[['id', 'Score',  'Scoreleft',  'Scoreright']]
+    df = df.drop_duplicates()
+    df.to_csv('ConservationScoresForPanhandles.tsv',  sep = '\t')
+    
+if __name__ == '__main__':
+    main(sys.argv[1:])
+
