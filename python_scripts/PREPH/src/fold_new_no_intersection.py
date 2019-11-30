@@ -21,7 +21,7 @@ intl22_matrix = load("../lib/intl22_matrix.npy")
 TerminalAU = 50
 
 
-def Seq_to_bin(seq):
+def Seq_to_bin(seq): # Uses bitwise shift to make bin from sequence
     Dict = {'A': 0b0, 'T': 0b10, 'G': 0b11, 'C': 0b1}
     s = 0
     for char in seq:
@@ -32,7 +32,7 @@ def Seq_to_bin(seq):
     return (s)
 
 
-def Index_seq(seq, k):
+def Index_seq(seq, k): #Uses bitwise shift to divide bin into kmers
     seq_bin = Seq_to_bin(seq)
     if seq_bin is False:
         return (False)
@@ -63,14 +63,10 @@ def Initiate_with_kmers(seq, seq_compl, seq_indxd_tmp, seq_compl_indxd_tmp, kmer
         S = empty([len(seq_compl), len(seq)],
                   dtype="S" + str(len(seq) + len(seq_compl)))  # dot bracket structure matrix
         for I, kmer_i in enumerate(seq_compl_indxd_tmp):
-            #i = I + k + 2
             i = seq_compl_length - I - k
-            #print(I, kmer_i, i)
             for J, kmer_j in enumerate(seq_indxd_tmp):
                 j = seq_length - J - 1
-                #print(J, kmer_j, j)
                 D[i][j] = kmers_stacking_matrix[kmer_j, kmer_i]
-                #print(D[i][j])
                 if D[i][j] != inf:
                     B[i][j] = (i + k - 1, j - k + 1)
                     S[i][j] = '(' * k + ')' * k
@@ -160,31 +156,24 @@ def FindMinEnLocAlkmer(seq, seq_compl, seq_indxd, seq_compl_indxd, k, energy_thr
             alignments = []
             seq_indxd_tmp.extend([kmers_stacking_matrix.shape[0] - 1] * (k + 2))
             seq_compl_indxd_tmp.extend([kmers_stacking_matrix.shape[0] - 1] * (k + 2))
-            # go through matrixes and fill them in
+            # go through matrices and fill them in
             for i in range(len(seq_compl) - k, k + 2, -1):
-                #I = i - k - 2
                 I = seq_compl_length - k - i
-                #print(i, I)
                 for j in range(k - 1, len(seq) - k - 3):
                     J = seq_length - j - 1
-                    #print(j, J)
                     if (D[i][j] != inf and D[i][j] != 0):  # found kmer stacking
-                        #print(D[i][j])
                         S_head = S[i][j][:S[i][j].find(')')]
                         S_tail = S[i][j][S[i][j].find(')'):]
                         # stem
-                        #print('stem')
                         new_en = D[i][j] + stacking_matrix[Dic_bp.get(seq_compl[i - 1] + seq[j + 1], 6)][
                             Dic_bp.get(seq[j] + seq_compl[i], 6)]
                         argmin_ = argmin([0, D[i - 1][j + 1], new_en])
                         B[i - 1][j + 1] = Backtrack(argmin_, B[i - 1][j + 1], B[i][j])
                         D[i - 1][j + 1] = [0, D[i - 1][j + 1], new_en][argmin_]
                         S[i - 1][j + 1] = ['*', S[i - 1][j + 1], S_head + '()' + S_tail][argmin_]
-                        #print(new_en)
                         # bulge01 (seq has 1 more nt)
                         new_en = D[i][j] + bulge_list[1] + stacking_matrix[Dic_bp.get(seq_compl[i - 1] + seq[j + 2], 6)][
                             Dic_bp.get(seq[j] + seq_compl[i], 6)] + kmers_stacking_matrix[
-                                     #seq_indxd_tmp[J - 1 - k], seq_compl_indxd_tmp[I - k]]
                                       seq_indxd_tmp[J - 1 - k], seq_compl_indxd_tmp[I + k]]
                         argmin_ = argmin([0, D[i - k][j + 1 + k], new_en])
                         B[i - k][j + 1 + k] = Backtrack(argmin_, B[i - k][j + 1 + k], B[i][j])
@@ -193,7 +182,6 @@ def FindMinEnLocAlkmer(seq, seq_compl, seq_indxd, seq_compl_indxd, k, energy_thr
                         # bulge10 (seq_compl has 1 more nt)
                         new_en = D[i][j] + bulge_list[1] + stacking_matrix[Dic_bp.get(seq_compl[i - 2] + seq[j + 1], 6)][
                             Dic_bp.get(seq[j] + seq_compl[i], 6)] + kmers_stacking_matrix[
-                                     #seq_indxd_tmp[J - k], seq_compl_indxd_tmp[I - 1 - k]]
                                       seq_indxd_tmp[J - k], seq_compl_indxd_tmp[I + 1 + k]]
                         argmin_ = argmin([0, D[i - 1 - k][j + k], new_en])
                         B[i - 1 - k][j + k] = Backtrack(argmin_, B[i - 1 - k][j + k], B[i][j])
@@ -201,10 +189,9 @@ def FindMinEnLocAlkmer(seq, seq_compl, seq_indxd, seq_compl_indxd, k, energy_thr
                         S[i - 1 - k][j + k] = ['*', S[i - 1 - k][j + k], S_head + '(' * k + ')' * k + '.' + S_tail][argmin_]
                         # bulge 02
                         new_en = D[i][j] + bulge_list[2] + (
-                            TerminalAU if Dic_bp.get(seq_compl[i - 1] + seq[j + 3], 6) > 2 or Dic_bp.get(
+                            TerminalAU if Dic_bp.get(seq_compl[i - 1] + seq[j + 3], 6) > 1 or Dic_bp.get(
                                 seq[j] + seq_compl[i],
-                                #6) > 2 else 0) + kmers_stacking_matrix[seq_indxd_tmp[J - 2 - k], seq_compl_indxd_tmp[I - k]]
-                                 6) > 2 else 0) + kmers_stacking_matrix[seq_indxd_tmp[J - 2 - k], seq_compl_indxd_tmp[I + k]]
+                                 6) > 1 else 0) + kmers_stacking_matrix[seq_indxd_tmp[J - 2 - k], seq_compl_indxd_tmp[I + k]]
                         argmin_ = argmin([0, D[i - k][j + 2 + k], new_en])
                         B[i - k][j + 2 + k] = Backtrack(argmin_, B[i - k][j + 2 + k], B[i][j])
                         D[i - k][j + 2 + k] = [0, D[i - k][j + 2 + k], new_en][argmin_]
@@ -212,21 +199,18 @@ def FindMinEnLocAlkmer(seq, seq_compl, seq_indxd, seq_compl_indxd, k, energy_thr
                             argmin_]
                         # bulge 20
                         new_en = D[i][j] + bulge_list[2] + (
-                            TerminalAU if Dic_bp.get(seq_compl[i - 3] + seq[j + 1], 6) > 2 or Dic_bp.get(
+                            TerminalAU if Dic_bp.get(seq_compl[i - 3] + seq[j + 1], 6) > 1 or Dic_bp.get(
                                 seq[j] + seq_compl[i],
-                                #6) > 2 else 0) + kmers_stacking_matrix[seq_indxd_tmp[J - k], seq_compl_indxd_tmp[I - 2 - k]]
-                                 6) > 2 else 0) + kmers_stacking_matrix[seq_indxd_tmp[J - k], seq_compl_indxd_tmp[I + 2 + k]]
+                                 6) > 1 else 0) + kmers_stacking_matrix[seq_indxd_tmp[J - k], seq_compl_indxd_tmp[I + 2 + k]]
                         argmin_ = argmin([0, D[i - 2 - k][j + k], new_en])
                         B[i - 2 - k][j + k] = Backtrack(argmin_, B[i - 2 - k][j + k], B[i][j])
                         D[i - 2 - k][j + k] = [0, D[i - 2 - k][j + k], new_en][argmin_]
                         S[i - 2 - k][j + k] = ['*', S[i - 2 - k][j + k], S_head + '(' * k + ')' * k + '..' + S_tail][
                             argmin_]
                         # loop11
-                        #print('loop11')
                         new_en = D[i][j] + intl11_matrix[Dic_bp.get(seq_compl[i - 2] + seq[j + 2], 7)][
                             Dic_bp.get(seq[j] + seq_compl[i], 7)][Dic_nt.get(seq_compl[i - 1], 5)][
                             Dic_nt.get(seq[j + 1], 5)] + kmers_stacking_matrix[
-                                     #seq_indxd_tmp[J - 1 - k], seq_compl_indxd_tmp[I - 1 - k]]
                                       seq_indxd_tmp[J - 1 - k], seq_compl_indxd_tmp[I + 1 + k]]
                         argmin_ = argmin([0, D[i - 1 - k][j + 1 + k], new_en])
                         B[i - 1 - k][j + 1 + k] = Backtrack(argmin_, B[i - 1 - k][j + 1 + k], B[i][j])
@@ -237,7 +221,6 @@ def FindMinEnLocAlkmer(seq, seq_compl, seq_indxd, seq_compl_indxd, k, energy_thr
                         new_en = D[i][j] + intl12_matrix[Dic_bp.get(seq_compl[i - 2] + seq[j + 3], 7)][
                             Dic_bp.get(seq[j] + seq_compl[i], 7)][Dic_nt.get(seq_compl[i - 1], 5)][
                             Dic_nt.get(seq[j + 1], 5)][Dic_nt.get(seq[j + 2], 5)] + kmers_stacking_matrix[
-                                     #seq_indxd_tmp[J - 2 - k], seq_compl_indxd_tmp[I - 1 - k]]
                                       seq_indxd_tmp[J - 2 - k], seq_compl_indxd_tmp[I + 1 + k]]
                         argmin_ = argmin([0, D[i - 1 - k][j + 2 + k], new_en])
                         B[i - 1 - k][j + 2 + k] = Backtrack(argmin_, B[i - 1 - k][j + 2 + k], B[i][j])
@@ -248,7 +231,6 @@ def FindMinEnLocAlkmer(seq, seq_compl, seq_indxd, seq_compl_indxd, k, energy_thr
                         new_en = D[i][j] + intl12_matrix[Dic_bp.get(seq[j] + seq_compl[i], 7)][
                             Dic_bp.get(seq_compl[i - 3] + seq[j + 2], 7)][Dic_nt.get(seq[j + 1], 5)][
                             Dic_nt.get(seq_compl[i - 2], 5)][Dic_nt.get(seq_compl[i - 1], 5)] + kmers_stacking_matrix[
-                                     #seq_indxd_tmp[J - 1 - k], seq_compl_indxd_tmp[I - 2 - k]]
                                       seq_indxd_tmp[J - 1 - k], seq_compl_indxd_tmp[I + 2 + k]]
                         argmin_ = argmin([0, D[i - 2 - k][j + 1 + k], new_en])
                         B[i - 2 - k][j + 1 + k] = Backtrack(argmin_, B[i - 2 - k][j + 1 + k], B[i][j])

@@ -8,6 +8,7 @@ path.to.sample <- args[1]
 path.to.population <- args[2]
 path.to.mut <- args[3]
 subtract <- args[4]
+parse.mut <- args[5]
 
 
 CountMutations <- function(path.to.gr, path.to.mut, add){
@@ -15,7 +16,7 @@ CountMutations <- function(path.to.gr, path.to.mut, add){
   length_ <- tryCatch(scan(pipe(x)), error = function(e) 0)
   length_ <- as.numeric(length_)
   print(length_)
-  x <- paste0('bedtools sort -i ', path.to.gr, ' | bedtools merge -i stdin | bedtools intersect -a stdin -b ', path.to.mut, ' -wa -wb')
+  x <- paste0('bedtools sort -i ', path.to.gr, ' | bedtools merge -i stdin ', add, ' | bedtools intersect -a stdin -b ', path.to.mut, ' -wa -wb')
   mut.in.df <- tryCatch(read.delim(pipe(x), header = F), error = function(e) NULL)
   if(is.null(mut.in.df)){
     count.mut <- 0
@@ -27,15 +28,20 @@ CountMutations <- function(path.to.gr, path.to.mut, add){
   return(c(length_, count.mut))
 }
 
-TestMutEnrichment <- function(path.to.sample, path.to.population, path.to.mut, subtract = 'False'){
-  x <- paste0('awk -F"\\t" \'{print $9,$10,$11,$1"_"$2"_"$15"_"$16"_"$17}\' OFS="\\t" ', path.to.mut, ' | sed \'s/^/chr/\' | tail -n +2 |sort -u | bedtools sort -i stdin > tmp_mut.bed')
-  system(x)
+TestMutEnrichment <- function(path.to.sample, path.to.population, path.to.mut, subtract = 'False', parse.mut = 'False'){
+  if(parse.mut == 'True'){
+    x <- paste0('awk -F"\\t" \'{print $9,$10,$11,$1"_"$2"_"$15"_"$16"_"$17}\' OFS="\\t" ', path.to.mut, ' | sed \'s/^/chr/\' | tail -n +2 |sort -u | bedtools sort -i stdin > tmp_mut.bed')
+    system(x)   
+  } else {
+    system(paste0("cp ", path.to.mut, " tmp_mut.bed"))
+  }
   add <- ""
   out <- CountMutations(path.to.sample, 'tmp_mut.bed', add)
   length1 <- out[1]
   count.mut1 <- out[2]
   
   if(subtract == 'True'){
+    print('Subtracting sample from popuation..')
     add <- paste0("| bedtools subtract -a stdin -b ", path.to.sample)
   }
   out <- CountMutations(path.to.population, 'tmp_mut.bed', add)

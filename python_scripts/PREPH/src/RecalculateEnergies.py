@@ -104,7 +104,6 @@ def Mutate(seq, seq_compl, mut_coord, mut_seq, mut_to, part1, part2):
                         else:  # doesn't restore stacking
                             seq[mut_coord] = mut_to
                     else:  # bulge
-                        print('bulge')
                         seq[mut_coord] = mut_to
         elif mut_seq == 'seq_compl':
             if part2[mut_coord] == ')':

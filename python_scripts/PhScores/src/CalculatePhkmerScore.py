@@ -14,6 +14,13 @@ import pickle
 sys.path.insert(0, './')
 import itertools
 from functions import *
+from Bio.Seq import Seq
+
+def MakeComplement(sequence_column, row):
+    if row['strand'] == '-':
+        return(str(Seq(row[sequence_column]).complement()))
+    else:
+        return(row[sequence_column])
 
 def CountOnekmerScore(ph, kmer_length, kmerFreq, id):
     summed_freq = sum([kmerFreq[item] for item in Index_seq(ph.loc[ph.id == id, 'alignment1'].values[0], kmer_length)]) + \
@@ -23,10 +30,16 @@ def CountOnekmerScore(ph, kmer_length, kmerFreq, id):
     return(Score)
 
 
-def CalculatePhkmerScore(path_to_kmer_freq, path_to_ph, kmer_length, Threads):
+def CalculatePhkmerScore(path_to_kmer_freq, path_to_ph, kmer_length, Threads, strandness):
     with open(path_to_kmer_freq, 'rb') as f:
         kmerFreq = pickle.load(f)
     ph = pd.read_csv(path_to_ph, sep='\t')
+    if strandness:
+        print("Making complement of minus strand..")
+        MakeComplement2 = partial(MakeComplement, 'alignment1')
+        ph.loc[:, 'alignment1'] = ph.apply(MakeComplement2, axis=1) 
+        MakeComplement2 = partial(MakeComplement, 'alignment2')
+        ph.loc[:, 'alignment2'] = ph.apply(MakeComplement2, axis=1) 
     ph.drop_duplicates(subset = 'id', inplace = True)
     p = mp.Pool(processes=Threads)
     m = mp.Manager()
@@ -95,19 +108,20 @@ def main(argv):
     mode = 'kmer'
     kmer_length = 5
     Threads = 10
+    strandness = True
     try:
-        opts, args = getopt.getopt(argv, "h:f:p:k:T:e:t:m:",
-                                   ["help=", "frequency=", "ph=", "kmer=", "Threads=", "energy=", 'table=', 'mode='])
+        opts, args = getopt.getopt(argv, "h:f:p:k:T:e:t:m:s:",
+                                   ["help=", "frequency=", "ph=", "kmer=", "Threads=", "energy=", 'table=', 'mode=', 'strandness='])
     except getopt.GetoptError:
         print('CalculatePhkmerScore.py -f <frequency> -p <ph> -k <kmer> -T <Threads> -m kmer \n ' +
               'OR CalculatePhkmerScore.py -e <energy> -t table -p <ph> -k <kmer> -T <Threads> -m energy \n ' +
-              'OR CalculatePhkmerScore.py -e <energy> -t table -p <ph> -k <kmer> -T <Threads> -m energy_and_frequency')
+              'OR CalculatePhkmerScore.py -e <energy> -t table -p <ph> -k <kmer> -T <Threads> -m energy_and_frequency -s strandness')
         sys.exit(2)
     for opt, arg in opts:
         if opt in ('-h', '--help'):
             print('CalculatePhkmerScore.py -f <frequency> -p <ph> -k <kmer> -T <Threads> -m kmer \n ' +
                   'OR CalculatePhkmerScore.py -e <energy> -t table -p <ph> -k <kmer> -T <Threads> -m energy \n ' +
-                  'OR CalculatePhkmerScore.py -e <energy> -t table -p <ph> -k <kmer> -T <Threads> -m energy_and_frequency')
+                  'OR CalculatePhkmerScore.py -e <energy> -t table -p <ph> -k <kmer> -T <Threads> -m energy_and_frequency -s strandness=')
             sys.exit()
         elif opt in ("-f", "--frequency"):
             path_to_kmer_freq = arg
@@ -123,8 +137,10 @@ def main(argv):
             path_to_table = arg
         elif opt in ("-m", "--mode"):
             mode = arg
+        elif opt in ("-s", "--strandness"):
+            strandness = bool(arg)        
     if mode == 'kmer':
-        ph = CalculatePhkmerScore(path_to_kmer_freq, path_to_ph, kmer_length, Threads)
+        ph = CalculatePhkmerScore(path_to_kmer_freq, path_to_ph, kmer_length, Threads, strandness)
     else:
         if mode == 'energy':
             ph = CalculatePhEnergyScore(path_to_ph, path_to_kmer_energy, path_to_table, kmer_length, Threads,

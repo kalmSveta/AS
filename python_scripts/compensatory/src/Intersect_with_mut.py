@@ -27,7 +27,7 @@ def Make_handles(ph_input):
     ph_both['start'] = ph_both.start.apply(int)
     ph_both['stop'] = ph_both.stop.apply(int)
     ph_both.to_csv('../out/panhandle_handles.tsv', sep="\t", index=False, header=False)
-    call("bedtools sort -i ../out/panhandle_handles.tsv > ../out/panhandle_handles_sorted.tsv")
+    call(["bedtools sort", "-i", "../out/panhandle_handles.tsv"], stdout = open("../out/panhandle_handles_sorted.tsv", "w")) # NOT WORK
     call("mv ../out/panhandle_handles_sorted.tsv ../out/panhandle_handles.tsv")
 
 def intersect(mut_path, file_):
@@ -49,6 +49,7 @@ def main(argv):
             print(
                 'Intersect_with_mut.py -p <ph_input_path> -m <mut_path> -t <threads>')
             sys.exit()
+
         elif opt in ("-p", "--ph_input"):
             ph_input = arg
         elif opt in ("-m", "--mut_path"):
@@ -62,11 +63,12 @@ def main(argv):
     files_with_mut = glob.glob(mut_path + "*.vcf.gz")
     print(files_with_mut)
 
-    p = mp.Pool(processes=threads)
-    func = partial(intersect, mut_path)
-    p.map(func, files_with_mut)
-    p.close()
-    p.join()
+    #p = mp.Pool(processes=threads)
+    #func = partial(intersect, mut_path)
+    #p.map(func, files_with_mut)
+    #p.close()
+    #p.join()
+    call(['./intersect_mut_and_panh2.sh', mut_path, '../out/panhandle_handles.tsv'])
 
 
 

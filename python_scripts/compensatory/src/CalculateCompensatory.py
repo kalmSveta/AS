@@ -12,7 +12,15 @@ import re
 import numpy as np
 
 
-Dic_bp = {'CG':0, 'GC':1, 'GT':2, 'TG':3,'AT':4,'TA':5}
+Dic_bp_plus = {'CG':0, 'GC':1, 'GT':2, 'TG':3,'AT':4,'TA':5}
+Dic_bp_min = {'CG':0, 'GC':1, 'CA':2, 'AC':3,'AT':4,'TA':5}
+
+def ReverseCompl(seq):
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'} 
+    bases = list(seq) 
+    bases = reversed([complement.get(base,base) for base in bases])
+    rc_seq = ''.join(bases)
+    return(rc_seq)
 
 
 def SplitStructure(structure):
@@ -44,11 +52,11 @@ def AddDelitions(structure, seq, seq_compl, mut_coord = -1, mut_seq = '',  have_
 def AddDeletionsOne(lock, df, outputfile, panhandle_id):
     with open('../out/panhandles_info.txt', 'a') as error_f:
         error_f.write(str(panhandle_id) + '\n')
-    print(panhandle_id)
     seq = df.loc[df.id == panhandle_id,'alignment1'].values[0]
     seq_compl = df.loc[df.id == panhandle_id,'alignment2'].values[0]
     structure = df.loc[df.id == panhandle_id,'structure'].values[0]
     chr = df.loc[df.id == panhandle_id,'chr'].values[0]
+    strand = df.loc[df.id == panhandle_id,'strand'].values[0]
     panhandle_start = df.loc[df.id == panhandle_id,'panhandle_start'].values[0]
     panhandle_left_hand = df.loc[df.id == panhandle_id,'panhandle_left_hand'].values[0]
     panhandle_right_hand = df.loc[df.id == panhandle_id,'panhandle_right_hand'].values[0]
@@ -63,7 +71,8 @@ def AddDeletionsOne(lock, df, outputfile, panhandle_id):
                                                 'panhandle_start':panhandle_start, 
                                                 'panhandle_left_hand':panhandle_left_hand, 
                                                 'panhandle_right_hand':panhandle_right_hand, 
-                                                'panhandle_end':panhandle_end}, index=[0])
+                                                'panhandle_end':panhandle_end,
+                                                'strand':strand}, index=[0])
     with open(outputfile, 'a') as f:
         with lock:
             results_one_panhandle_table.to_csv(f, sep="\t", index=False)
@@ -77,18 +86,21 @@ def MakeNtPairs(lock, df, outputfile, panhandle_id):
     chr_ = df.loc[df.panhandle_id == panhandle_id,'chr'].values[0]
     panhandle_start = float(df.loc[df.panhandle_id == panhandle_id,'panhandle_start'].values[0])
     panhandle_end = float(df.loc[df.panhandle_id == panhandle_id,'panhandle_end'].values[0])
+    strand = df.loc[df.panhandle_id == panhandle_id,'strand'].values[0]
     results = list()
     add1 = 0
     add2 = 0
     seq_compl = seq_compl[::-1]
     for i, nt1, nt2 in zip(range(len(seq)), seq, seq_compl):
         print(i,  nt1,  nt2)
-        if nt1 + nt2 in Dic_bp:
+        if ((nt1 + nt2 in Dic_bp_plus) & (strand == '+')) | ((nt1 + nt2 in Dic_bp_min) & (strand == '-')):
             name1 = str(panhandle_id) + '_' + seq[i]
             name2 = str(panhandle_id) + '_' + seq_compl[i]
             start1 = panhandle_start + i + add1
             start2 = panhandle_end - i + add2
-            results.append(pd.DataFrame([[chr_, start1, start1, name1, '.', '.', chr_, start2, start2, name2, '.', '.']], columns = ['chr1', 'start1', 'end1', 'name1', 'score1', 'strand1', 'chr2', 'start2', 'end2', 'name2', 'score2', 'strand2']))
+            strand1 = strand
+            strand2 = strand
+            results.append(pd.DataFrame([[chr_, start1, start1, name1, '.', strand1, chr_, start2, start2, name2, '.', strand2]], columns = ['chr1', 'start1', 'end1', 'name1', 'score1', 'strand1', 'chr2', 'start2', 'end2', 'name2', 'score2', 'strand2']))
         else:
             if nt1 == '-':
                 add1 -= 1
@@ -108,17 +120,17 @@ def CountCompensatory(nts,  mut_path,  threshold, save_df = False):
     nts['mut_to2'] = nts.mut_to2.astype(str)
     nts = nts[~(nts['mut_to1'].str.contains(',')) & ~(nts['mut_to2'].str.contains(','))]
     x = nts.mut_to1 + nts.mut_to2
-    nts = nts.loc[x.isin(Dic_bp)]
+    nts = nts.loc[((nts.strand1 == '+') & (x.isin(Dic_bp_plus))) | ((nts.strand1 == '-') & (x.isin(Dic_bp_min)))]
     nts = nts.loc[(nts.n_donors1 > threshold) & (nts.n_donors2 > threshold)]
-    files_with_mut = glob.glob(mut_path + "*_out.txt.gz")
+    files_with_mut = glob.glob(mut_path + "*_out.txt")
     for chr_ in nts.chr1.unique():
         print(chr_)
         tmp = nts.loc[nts.chr1 == chr_]
         mut = filter(re.compile(chr_+'\.').findall, files_with_mut)[0]
-        mut = pd.read_csv(mut, sep='\t',  header=None, compression='gzip')
+        mut = pd.read_csv(mut, sep='\t',  header=None)
         for i in tmp.index:
             mut_id1 = tmp.loc[tmp.index == i].mut_id1.values[0]
-            mut_tmp = mut.loc[mut[7] == mut_id1]
+            mut_tmp = mut.loc[mut[8] == mut_id1]
             if mut_tmp.empty:
                 donors_left1 = []
                 donors_right1 = []
@@ -129,7 +141,7 @@ def CountCompensatory(nts,  mut_path,  threshold, save_df = False):
                 donors_left1 = list(donors[donors.str.contains('1\|')].index)
                 donors_right1 = list(donors[donors.str.contains('\|1')].index)
             mut_id2 = tmp.loc[tmp.index == i].mut_id2.values[0]
-            mut_tmp = mut.loc[mut[7] == mut_id2]
+            mut_tmp = mut.loc[mut[8] == mut_id2]
             if mut_tmp.empty:
                 donors_left2 = []
                 donors_right2 = []
@@ -177,7 +189,8 @@ def Shuffle(nts, seed, shuffle_on):
     return(nts_merged)
 
 
-def ShuffleAnd_Count(lock, nts, outputfile_comp, outputfile_pairs, mut_path, threshold, shuffle_on, iterator):
+def ShuffleAnd_Count_par(lock, nts, outputfile_comp, outputfile_pairs, mut_path, threshold, shuffle_on, iterator):
+    print('Im here')
     nts_shuffled = Shuffle(nts, seed=iterator, shuffle_on = shuffle_on)
     n_pairs_with_SNP_shuffled = nts_shuffled.loc[(nts_shuffled.n_donors1 > threshold) | (nts_shuffled.n_donors2 > threshold)].shape[0]
     n_pairs_with_compensatory_SNP_shuffled = CountCompensatory(nts_shuffled, mut_path, threshold, save_df=False)
@@ -190,13 +203,25 @@ def ShuffleAnd_Count(lock, nts, outputfile_comp, outputfile_pairs, mut_path, thr
     print(iterator)
     return(0)
 
+def ShuffleAnd_Count(nts, outputfile_comp, outputfile_pairs, mut_path, threshold, shuffle_on, iterator):
+    print('Im here')
+    nts_shuffled = Shuffle(nts, seed=iterator, shuffle_on = shuffle_on)
+    n_pairs_with_SNP_shuffled = nts_shuffled.loc[(nts_shuffled.n_donors1 > threshold) | (nts_shuffled.n_donors2 > threshold)].shape[0]
+    n_pairs_with_compensatory_SNP_shuffled = CountCompensatory(nts_shuffled, mut_path, threshold, save_df=False)
+    with open(outputfile_comp, 'a') as f:
+        f.write("%s\n" % n_pairs_with_compensatory_SNP_shuffled)
+    with open(outputfile_pairs, 'a') as f:
+        f.write("%s\n" % n_pairs_with_SNP_shuffled)
+    print(iterator)
+    return(0)    
+
 
 def main(argv):
     threshold = 25
-    N_permutations = 1000
-    threads = 28
-    ph_input = '../../folding_pretty_copy/out/foo.tsv'
-    mut_path = "../out/handles_and_mut/"
+    N_permutations = 100
+    threads = 50
+    ph_input = '../../folding_pretty_copy/out/hg19_ss_flanks/panhandles_preprocessed_filtered.tsv'
+    mut_path = "../../../1000genomes/new/hg19_ss_flanks/phs/"
     shuffle_on = 'n_donors_bin'
     try:
         opts, args = getopt.getopt(argv,"h:p:T:m:t:N:s:", ["help=","ph_input=","threads=","mut_path","threshold=","Npermutations", "shuffle_on"])
@@ -219,6 +244,10 @@ def main(argv):
             N_permutations = int(arg)
         elif opt in ("-s", "--shuffle_on"):
             shuffle_on = arg
+    ###################### make everything plus stranded 
+    ph = pd.read_csv(ph_input, sep = '\t') 
+    ph.loc[ph.strand=='-','alignment1'] = map(ReverseCompl, ph.loc[ph.strand == '-'].alignment1)
+    ph.loc[ph.strand=='-','alignment2'] = map(ReverseCompl, ph.loc[ph.strand == '-'].alignment2)
     ###################### add deletions
     with open('../out/panhandles_info.txt', 'w') as error_f:
         error_f.write('Started alignment: \n')
@@ -226,7 +255,6 @@ def main(argv):
     with open('../out/ph_with_deletions.tsv', 'w') as f:
         f.write('')
         f.close()
-    ph = pd.read_csv(ph_input, sep = '\t') 
     p = mp.Pool(processes = threads)
     func = partial(AddDeletionsOne, mp.Manager().Lock(), ph, '../out/ph_with_deletions.tsv')
     panhandle_ids = ph['id'].values
@@ -236,6 +264,7 @@ def main(argv):
     print('added deletions!')
     ph = pd.read_csv('../out/ph_with_deletions.tsv', sep="\t")
     ph = ph[ph.alignment1 != 'alignment1']
+    ph.to_csv('../out/ph_with_deletions.tsv', sep="\t")
     ph["panhandle_id"] = pd.to_numeric(ph["panhandle_id"])
     #################  make pairs of nts
     with open('../out/panhandles_info.txt', 'w') as error_f:
@@ -257,7 +286,6 @@ def main(argv):
     results_df.to_csv( '../out/nt_pairs.tsv',  sep='\t',  index=False)
     ############################# select mutations with # donors > THR1, count pairs with mut
     call(['./count_donors.sh',  mut_path])
-    
     nts = pd.read_csv( '../out/nt_pairs.tsv',  sep = '\t')
     with open('../out/nt_pairs_with_mut.tsv', 'w') as f:
         f.write('')
@@ -281,7 +309,7 @@ def main(argv):
         except:
             print('nothing to parse!')
             continue  
-    nts = pd.read_csv( '../out/nt_pairs_with_mut.tsv',  sep = '\t') 
+    nts = pd.read_csv( '../out/nt_pairs_with_mut.tsv',  sep = '\t') # all nts pairs, some have mut, some have paired mut
     nts = nts.loc[nts.mut_to1 != 'mut_to1']
     nts['n_donors1'] = pd.to_numeric(nts['n_donors1'])
     nts['n_donors2'] = pd.to_numeric(nts['n_donors2'])
@@ -310,12 +338,18 @@ def main(argv):
         f.write('')
     with open('../out/N_pairs_with_SNP_shuffled.txt', 'w') as f:
         f.write('')
-    p = mp.Pool(processes = threads)
-    func = partial(ShuffleAnd_Count, mp.Manager().Lock(), nts, '../out/N_compensatory_shuffled.txt',
-                   '../out/N_pairs_with_SNP_shuffled.txt', mut_path, threshold, shuffle_on)
-    p.map(func, range(N_permutations))
-    p.close()
-    p.join()
+    parallel = False
+    if parallel:
+        p = mp.Pool(processes = threads)
+        func = partial(ShuffleAnd_Count_par, mp.Manager().Lock(), nts, '../out/N_compensatory_shuffled.txt',
+                       '../out/N_pairs_with_SNP_shuffled.txt', mut_path, threshold, shuffle_on)
+        p.map(func, range(N_permutations))
+        p.close()
+        p.join()
+    else:
+        for i in range(N_permutations):
+            ShuffleAnd_Count(nts, '../out/N_compensatory_shuffled.txt',
+                       '../out/N_pairs_with_SNP_shuffled.txt', mut_path, threshold, shuffle_on, i)
 
 
     

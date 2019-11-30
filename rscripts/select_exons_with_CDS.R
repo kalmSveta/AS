@@ -22,7 +22,9 @@ SelectCodingExons <- function(path.to.anno, out.path){
   CDS.ids <- CDS.ids - 1
   dt[dt$id %in% CDS.ids, ]$coding <- T
   dt <- dt[dt$coding, ]
-  dt <- dt[, c('V1', 'V4', 'V5', 'V7'), with = F]
+  dt <- dt[, c('V1', 'V4', 'V5', 'id', 'V6', 'V7'), with = F]
+  dt$V6 <- 1
+  dt$V6 <- as.numeric(dt$V6)
   write.table(dt, out.path, sep = '\t', col.names = F, row.names = F, quote = F)  
 }
 
